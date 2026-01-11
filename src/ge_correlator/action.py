@@ -37,8 +37,7 @@ def on_validation_start(
         NotImplementedError: Skeleton implementation - not yet functional.
     """
     raise NotImplementedError(
-        "on_validation_start() is not yet implemented. "
-        "This is a skeleton release."
+        "on_validation_start() is not yet implemented. " "This is a skeleton release."
     )
 
 
@@ -58,8 +57,7 @@ def on_validation_success(
         NotImplementedError: Skeleton implementation - not yet functional.
     """
     raise NotImplementedError(
-        "on_validation_success() is not yet implemented. "
-        "This is a skeleton release."
+        "on_validation_success() is not yet implemented. " "This is a skeleton release."
     )
 
 
@@ -79,6 +77,5 @@ def on_validation_failed(
         NotImplementedError: Skeleton implementation - not yet functional.
     """
     raise NotImplementedError(
-        "on_validation_failed() is not yet implemented. "
-        "This is a skeleton release."
+        "on_validation_failed() is not yet implemented. " "This is a skeleton release."
     )
