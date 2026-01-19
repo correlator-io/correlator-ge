@@ -1,4 +1,4 @@
-# 🔗 correlator-ge
+# 🔗 ge-correlator
 
 **Connect Great Expectations validations to incident correlation**
 
@@ -22,15 +22,33 @@ Links Great Expectations validation results to data pipeline incidents:
 
 ## Quick Start
 
+### installation
 ```bash
-# Install
 pip install correlator-ge
+```
 
-# Configure endpoint
-export CORRELATOR_ENDPOINT=http://localhost:8080/api/v1/lineage/events
+### Configuration
 
-# Add to your GE checkpoint (great_expectations.yml)
-# See Configuration section for details
+```python
+import os
+from great_expectations.checkpoint import Checkpoint
+from ge_correlator import CorrelatorValidationAction
+
+# Create checkpoint with Correlator action
+checkpoint = Checkpoint(
+    name="daily_validation",
+    validation_definitions=[my_validation_definition],
+    actions=[
+        CorrelatorValidationAction(
+            correlator_endpoint="http://correlator:8080/api/v1/lineage/events",
+            api_key=os.environ.get("CORRELATOR_API_KEY"),
+            emit_on="all",  # "all", "success", or "failure"
+        ),
+    ],
+)
+
+# Run checkpoint - events are automatically emitted
+result = checkpoint.run()
 ```
 
 Your validation results are now being correlated with data lineage.
@@ -41,11 +59,14 @@ Your validation results are now being correlated with data lineage.
 
 `correlator-ge` hooks into Great Expectations checkpoint execution and emits OpenLineage events:
 
-1. **START** - Emits validation start event when checkpoint begins
+1. **START** - Emits validation start event when checkpoint runs
 2. **Validate** - GE runs your expectation suites
 3. **Parse** - Extracts validation results and data quality metrics
 4. **Emit** - Sends events with DataQualityAssertions facets
 5. **COMPLETE/FAIL** - Emits completion event based on validation outcome
+
+Events are emitted in a single batch for efficiency. The action uses a fire-and-forget pattern - emission errors are
+logged but don't fail your checkpoint.
 
 See [Architecture](docs/ARCHITECTURE.md) for technical details.
 
@@ -53,9 +74,11 @@ See [Architecture](docs/ARCHITECTURE.md) for technical details.
 
 ## Why It Matters
 
-**The Problem:** When data quality checks fail, teams need to trace back through pipeline runs and lineage graphs to find what upstream job introduced the bad data.
+**The Problem:** When data quality checks fail, teams need to trace back through pipeline runs and lineage graphs to
+find what upstream job introduced the bad data.
 
-**What You Get:** `correlator-ge` automatically connects your validation failures to their upstream causes, making it easier to identify which job run introduced the data quality issue.
+**What You Get:** `ge-correlator` automatically connects your validation failures to their upstream causes, making it
+easier to identify which job run introduced the data quality issue.
 
 **Key Benefits:**
 
@@ -63,8 +86,10 @@ See [Architecture](docs/ARCHITECTURE.md) for technical details.
 - **Context in one place**: Data quality results correlated with lineage
 - **Standard integration**: Uses OpenLineage DataQualityAssertions facets
 - **Non-invasive setup**: Adds to existing checkpoint configuration
+- **Fire-and-forget**: Emission errors don't fail your checkpoints
 
-**Built on Standards:** Uses OpenLineage, the industry standard for data lineage. No vendor lock-in, no proprietary formats.
+**Built on Standards:** Uses OpenLineage, the industry standard for data lineage. No vendor lock-in, no proprietary
+formats.
 
 ---
 
@@ -73,14 +98,14 @@ See [Architecture](docs/ARCHITECTURE.md) for technical details.
 This package follows [Semantic Versioning](https://semver.org/) with the following guidelines:
 
 - **0.x.y versions** (e.g., 0.1.0, 0.2.0) indicate **initial development phase**:
-  - The API is not yet stable and may change between minor versions
-  - Features may be added, modified, or removed without major version changes
-  - Not recommended for production-critical systems without pinned versions
+    - The API is not yet stable and may change between minor versions
+    - Features may be added, modified, or removed without major version changes
+    - Not recommended for production-critical systems without pinned versions
 
 - **1.0.0 and above** will indicate a **stable API** with semantic versioning guarantees:
-  - MAJOR version for incompatible API changes
-  - MINOR version for backwards-compatible functionality additions
-  - PATCH version for backwards-compatible bug fixes
+    - MAJOR version for incompatible API changes
+    - MINOR version for backwards-compatible functionality additions
+    - PATCH version for backwards-compatible bug fixes
 
 The current version is in early development stage, so expect possible API changes until the 1.0.0 release.
 
@@ -90,7 +115,7 @@ The current version is in early development stage, so expect possible API change
 
 **For detailed usage, configuration, and development:**
 
-- **Configuration**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) - Checkpoint setup, environment variables
+- **Configuration**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) - Action options, environment variables
 - **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Internal design, OpenLineage events
 - **Development**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Development setup, testing
 - **Contributing**: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) - Contribution guidelines
@@ -100,15 +125,8 @@ The current version is in early development stage, so expect possible API change
 
 ## Requirements
 
-- Python 3.9+
-- Great Expectations 1.0+
-- [Correlator](https://github.com/correlator-io/correlator)
-
----
-
-## Current Status
-
-This is a **skeleton release** for CI pipeline testing and PyPI name reservation. Core functionality will be implemented after research into Great Expectations checkpoint action interfaces is complete.
+- **Great Expectations >= 1.3.0** (required - custom actions restored in 1.3.0)
+- **Python >= 3.9**
 
 ---
 
