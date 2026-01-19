@@ -11,6 +11,8 @@ Test Coverage:
     - extract_data_quality_facets(): Facet extraction from results
 """
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 from typing import Any

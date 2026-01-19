@@ -10,6 +10,8 @@ Test Coverage:
 - Fire-and-forget error handling
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import uuid
