@@ -26,6 +26,9 @@ from ge_correlator.extractors import (
     extract_run_time,
 )
 
+# Test producer URL
+TEST_PRODUCER = "https://github.com/correlator-io/correlator-ge/test"
+
 # =============================================================================
 # Mock Object Factories
 # =============================================================================
@@ -260,13 +263,22 @@ class TestExtractJobName:
 class TestExtractRunId:
     """Tests for extract_run_id() function."""
 
-    def test_extracts_run_name_from_run_id(self) -> None:
-        """Extracts run_name from checkpoint's run_id."""
+    def test_extracts_run_name_and_generates_deterministic_uuid(self) -> None:
+        """Generates deterministic UUID from checkpoint's run_name."""
         checkpoint_result = create_mock_checkpoint_result(run_name="manual-2024-01-15")
 
         run_id = extract_run_id(checkpoint_result)
 
-        assert run_id == "manual-2024-01-15"
+        # Verify it's a valid UUID string (OpenLineage requirement)
+        parsed = uuid.UUID(run_id)
+        assert str(parsed) == run_id
+
+        # Verify it's deterministic (same input = same UUID)
+        checkpoint_result_2 = create_mock_checkpoint_result(
+            run_name="manual-2024-01-15"
+        )
+        run_id_2 = extract_run_id(checkpoint_result_2)
+        assert run_id == run_id_2
 
     def test_generates_uuid_when_run_id_missing(self) -> None:
         """Generates UUID when run_id is not available."""
@@ -303,15 +315,24 @@ class TestExtractRunId:
         parsed = uuid.UUID(run_id)
         assert str(parsed) == run_id
 
-    def test_converts_run_name_to_string(self) -> None:
-        """Converts non-string run_name to string."""
+    def test_converts_run_name_to_uuid_deterministically(self) -> None:
+        """Converts non-string run_name to deterministic UUID."""
         checkpoint_result = MagicMock()
         checkpoint_result.run_id = MagicMock()
         checkpoint_result.run_id.run_name = 12345  # Integer
 
         run_id = extract_run_id(checkpoint_result)
 
-        assert run_id == "12345"
+        # Verify it's a valid UUID string
+        parsed = uuid.UUID(run_id)
+        assert str(parsed) == run_id
+
+        # Verify it's deterministic
+        checkpoint_result_2 = MagicMock()
+        checkpoint_result_2.run_id = MagicMock()
+        checkpoint_result_2.run_id.run_name = 12345
+        run_id_2 = extract_run_id(checkpoint_result_2)
+        assert run_id == run_id_2
 
 
 # =============================================================================
@@ -469,11 +490,25 @@ class TestExtractDatasets:
 class TestExtractDataQualityFacets:
     """Tests for extract_data_quality_facets() function."""
 
+    def test_raises_valueerror_when_producer_missing(self) -> None:
+        """Raises ValueError when producer is not provided."""
+        validation_result = create_mock_validation_result()
+
+        with pytest.raises(ValueError, match="producer is required"):
+            extract_data_quality_facets(validation_result, producer="")
+
+    def test_raises_valueerror_when_producer_none(self) -> None:
+        """Raises ValueError when producer is None."""
+        validation_result = create_mock_validation_result()
+
+        with pytest.raises(ValueError, match="producer is required"):
+            extract_data_quality_facets(validation_result, producer=None)  # type: ignore[arg-type]
+
     def test_extracts_statistics_to_data_quality_facet(self) -> None:
         """Extracts statistics into dataQualityMetrics facet."""
         validation_result = create_mock_validation_result()
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assert "dataQualityMetrics" in facets
         # NOTE: rowCount intentionally omitted - GE doesn't provide actual row counts
@@ -497,7 +532,7 @@ class TestExtractDataQualityFacets:
             ]
         )
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assert "dataQualityAssertions" in facets
         assertions = facets["dataQualityAssertions"]["assertions"]
@@ -522,7 +557,7 @@ class TestExtractDataQualityFacets:
         result.expectation_config.kwargs = {"min_value": 100, "max_value": 1000}
         validation_result.results = [result]
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assertions = facets["dataQualityAssertions"]["assertions"]
         assert len(assertions) == 1
@@ -536,7 +571,7 @@ class TestExtractDataQualityFacets:
         validation_result.statistics = {}
         validation_result.results = []
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assert facets["dataQualityAssertions"]["assertions"] == []
         assert "dataQualityMetrics" in facets
@@ -547,7 +582,7 @@ class TestExtractDataQualityFacets:
         validation_result.statistics = None
         validation_result.results = []
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assert "dataQualityMetrics" in facets
 
@@ -560,7 +595,7 @@ class TestExtractDataQualityFacets:
         result.expectation_config = None
         validation_result.results = [result]
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assertions = facets["dataQualityAssertions"]["assertions"]
         assert len(assertions) == 1
@@ -583,7 +618,7 @@ class TestExtractDataQualityFacets:
         """Schema URLs point to valid OpenLineage spec URLs."""
         validation_result = create_mock_validation_result()
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assert "openlineage.io/spec" in facets["dataQualityMetrics"]["_schemaURL"]
         assert "openlineage.io/spec" in facets["dataQualityAssertions"]["_schemaURL"]
@@ -602,7 +637,7 @@ class TestExtractDataQualityFacets:
         del result.expectation_config.expectation_type
         validation_result.results = [result]
 
-        facets = extract_data_quality_facets(validation_result)
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
 
         assertions = facets["dataQualityAssertions"]["assertions"]
         assert assertions[0]["assertion"] == "expect_column_to_exist"

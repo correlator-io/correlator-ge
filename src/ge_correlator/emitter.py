@@ -19,6 +19,7 @@ Requirements:
 
 import logging
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional, Union
 from uuid import UUID
 
@@ -30,12 +31,7 @@ from openlineage.client.event_v2 import (
     RunEvent,
 )
 
-from ge_correlator import __version__
-
 logger = logging.getLogger(__name__)
-
-# Producer URL for OpenLineage events
-PRODUCER = f"https://github.com/correlator-io/correlator-ge/{__version__}"
 
 # Type alias for OpenLineage event types
 Event = Union[RunEvent, DatasetEvent, JobEvent]
@@ -48,7 +44,7 @@ def _serialize_attr_value(
 ) -> Any:
     """Custom serializer for attr values (matches correlator-dbt pattern).
 
-    Handles datetime and UUID serialization for JSON compatibility.
+    Handles datetime, UUID, and Enum serialization for JSON compatibility.
     Used as value_serializer argument to attr.asdict().
 
     Args:
@@ -57,12 +53,14 @@ def _serialize_attr_value(
         value: The value to serialize.
 
     Returns:
-        Serialized value (ISO format for datetime, string for UUID, unchanged otherwise).
+        Serialized value (ISO format for datetime, string for UUID/Enum, unchanged otherwise).
     """
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, UUID):
         return str(value)
+    if isinstance(value, Enum):
+        return value.value
     return value
 
 
@@ -187,49 +185,4 @@ def _handle_response(response: requests.Response, event_count: int) -> None:
     # Server errors: 5xx or unexpected codes
     raise ValueError(
         f"Correlator returned {response.status_code}: {response.text[:500]}"
-    )
-
-
-def create_run_event(
-    event_type: str,
-    run_id: str,
-    job_name: str,
-    job_namespace: str,
-    event_time: Optional[str] = None,
-    inputs: Optional[list[dict[str, Any]]] = None,
-    outputs: Optional[list[dict[str, Any]]] = None,
-    producer: str = PRODUCER,
-) -> dict[str, Any]:
-    """Create an OpenLineage RunEvent dictionary.
-
-    Constructs a complete OpenLineage event following the v1.0 specification.
-
-    Args:
-        event_type: Event type - "START", "COMPLETE", "FAIL", or "ABORT".
-        run_id: Unique identifier for this run (UUID format).
-        job_name: Name of the job (e.g., "checkpoint_name.suite_name").
-        job_namespace: Namespace for the job (e.g., "great_expectations").
-        event_time: ISO 8601 timestamp. If None, uses current UTC time.
-        inputs: Optional list of input dataset dictionaries.
-        outputs: Optional list of output dataset dictionaries.
-        producer: Producer URI identifying this plugin.
-
-    Returns:
-        OpenLineage event dictionary ready for emission.
-
-    Raises:
-        NotImplementedError: Not yet implemented - planned for subtask 2.3.3.
-
-    Example:
-        >>> event = create_run_event(
-        ...     event_type="START",
-        ...     run_id="550e8400-e29b-41d4-a716-446655440000",
-        ...     job_namespace="great_expectations",
-        ...     job_name="my_checkpoint.my_suite",
-        ... )
-        >>> event["eventType"]
-        'START'
-    """
-    raise NotImplementedError(
-        "create_run_event() is not yet implemented. Planned for subtask 2.3.3."
     )

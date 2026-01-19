@@ -7,7 +7,6 @@ Test Coverage:
     - _serialize_attr_value(): Custom serializer
     - emit_events(): HTTP communication with Correlator
     - _handle_response(): Response code handling (200/204, 207, 4xx, 5xx)
-    - create_run_event(): Skeleton test (NotImplementedError)
 """
 
 import json
@@ -20,10 +19,9 @@ import pytest
 import requests
 import responses
 
+from ge_correlator.action import PRODUCER
 from ge_correlator.emitter import (
-    PRODUCER,
     _serialize_attr_value,
-    create_run_event,
     emit_events,
 )
 
@@ -793,45 +791,3 @@ class TestEmitEventsNegativeCases:
 
         # Should be truncated to 500 chars
         assert len(str(exc_info.value)) < 600
-
-
-# =============================================================================
-# K. create_run_event() Skeleton Tests
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestCreateRunEvent:
-    """Tests for create_run_event() function.
-
-    Note: These are skeleton tests. Full tests will be added
-    in subtask 2.3.3 when create_run_event() is implemented.
-    """
-
-    def test_create_run_event_raises_not_implemented(self) -> None:
-        """Test that create_run_event() raises NotImplementedError in skeleton.
-
-        This test verifies the skeleton behavior. It will be replaced
-        with actual tests when create_run_event() is implemented.
-        """
-        with pytest.raises(NotImplementedError, match="create_run_event"):
-            create_run_event(
-                event_type="START",
-                job_namespace="great_expectations",
-                job_name="my_checkpoint.my_suite",
-                run_id="test-run-id",
-            )
-
-    def test_create_run_event_with_inputs_raises_not_implemented(self) -> None:
-        """Test that create_run_event() with inputs raises NotImplementedError.
-
-        This test verifies the skeleton behavior with optional inputs parameter.
-        """
-        with pytest.raises(NotImplementedError, match="create_run_event"):
-            create_run_event(
-                event_type="COMPLETE",
-                job_namespace="great_expectations",
-                job_name="my_checkpoint.my_suite",
-                run_id="test-run-id",
-                inputs=[{"namespace": "db", "name": "source_table"}],
-            )

@@ -17,14 +17,9 @@ Requirements:
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
-
-from ge_correlator import __version__
+from typing import Any
 
 logger = logging.getLogger(__name__)
-
-# Default producer URL for OpenLineage facets
-DEFAULT_PRODUCER = f"https://github.com/correlator-io/correlator-ge/{__version__}"
 
 
 def extract_job_name(
@@ -69,26 +64,32 @@ def extract_job_name(
 
 
 def extract_run_id(checkpoint_result: Any) -> str:
-    """Extract or generate a unique run ID.
+    """Extract or generate a unique run ID as UUID.
 
-    Uses GE's run_id.run_name if available, otherwise generates UUID.
+    OpenLineage requires runId to be a valid UUID. If GE provides a run_name,
+    we generate a deterministic UUID from it using uuid5 with a namespace.
+    This ensures the same run_name always produces the same UUID for correlation.
 
     Args:
         checkpoint_result: GE CheckpointResult object.
 
     Returns:
-        Unique run identifier string.
+        UUID string for OpenLineage runId.
 
     Example:
         >>> run_id = extract_run_id(checkpoint_result)
-        >>> # Returns: "my-run-2024-01-15" or UUID string
+        >>> # Returns: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     """
+    # Namespace UUID for GE runs (deterministic generation)
+    GE_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+
     if hasattr(checkpoint_result, "run_id"):
         run_id = checkpoint_result.run_id
         if hasattr(run_id, "run_name") and run_id.run_name:
-            return str(run_id.run_name)
+            # Generate deterministic UUID from run_name for consistency
+            return str(uuid.uuid5(GE_NAMESPACE, str(run_id.run_name)))
 
-    # Generate UUID if run_id not available
+    # Generate random UUID if run_id not available
     return str(uuid.uuid4())
 
 
@@ -190,7 +191,7 @@ def extract_datasets(
 
 def extract_data_quality_facets(
     validation_result: Any,
-    producer: Optional[str] = None,
+    producer: str,
 ) -> dict[str, Any]:
     """Extract data quality metrics as OpenLineage facets.
 
@@ -199,19 +200,26 @@ def extract_data_quality_facets(
 
     Args:
         validation_result: GE ExpectationSuiteValidationResult object.
-        producer: Optional producer URL for facet metadata.
-            Defaults to correlator-ge URL.
+        producer: Producer URL for facet metadata (required).
+            Should be the PRODUCER constant from ge_correlator.action.
 
     Returns:
         Dict with dataQuality and dataQualityAssertions facets.
 
+    Raises:
+        ValueError: If producer is empty or None.
+
     Example:
-        >>> facets = extract_data_quality_facets(validation_result)
+        >>> from ge_correlator.action import PRODUCER
+        >>> facets = extract_data_quality_facets(validation_result, producer=PRODUCER)
         >>> facets["dataQualityAssertions"]["assertions"]
         [{"assertion": "expect_column_values_to_not_be_null", "success": True, ...}]
     """
-    if producer is None:
-        producer = DEFAULT_PRODUCER
+    if not producer:
+        raise ValueError(
+            "producer is required for extract_data_quality_facets(). "
+            "Pass PRODUCER from ge_correlator.action."
+        )
 
     facets: dict[str, Any] = {}
 
