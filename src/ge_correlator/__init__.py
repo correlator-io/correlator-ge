@@ -1,31 +1,36 @@
-"""correlator-ge: Emit Great Expectations validation events as OpenLineage events.
+"""correlator-ge: Great Expectations validation action for Correlator.
 
-This package provides a Great Expectations validation action that captures
+This package provides a Great Expectations ValidationAction that captures
 checkpoint validation results and emits OpenLineage events for automated
 incident correlation.
 
 Key Features:
-    - Capture GE validation results (pass/fail/warning)
+    - Capture GE validation results (pass/fail)
     - Construct OpenLineage events with data quality assertions
     - Emit events to Correlator or any OpenLineage-compatible backend
     - Zero-friction integration with existing GE checkpoints
 
 Usage:
-    $ ge-correlator --version
-    $ ge-correlator config
+    ```python
+    from ge_correlator import CorrelatorValidationAction
 
-Architecture:
-    - action: Checkpoint validation action
-    - emitter: Construct and emit OpenLineage events
-    - config: Configuration file loading utilities
-    - cli: Command-line interface
+    checkpoint = Checkpoint(
+        name="daily_validation",
+        validation_definitions=[my_validation_definition],
+        actions=[
+            CorrelatorValidationAction(
+                correlator_endpoint="http://correlator:8080/api/v1/lineage/events",
+                api_key=os.environ.get("CORRELATOR_API_KEY"),
+            ),
+        ],
+    )
+    ```
+
+Requirements:
+    - Great Expectations >= 1.3.0
 
 For detailed documentation, see:
     https://github.com/correlator-io/correlator-ge
-
-Note:
-    This is a skeleton implementation. Full functionality will be added
-    after Task 2.2 research is complete.
 """
 
 from importlib.metadata import PackageNotFoundError, version
@@ -46,20 +51,10 @@ __license__ = "Apache-2.0"
 
 # Public API exports
 __all__ = [
+    "CorrelatorValidationAction",
     "__version__",
-    "create_run_event",
     "emit_events",
-    "flatten_config",
-    "load_yaml_config",
-    "on_validation_failed",
-    "on_validation_start",
-    "on_validation_success",
 ]
 
-from .action import (
-    on_validation_failed,
-    on_validation_start,
-    on_validation_success,
-)
-from .config import flatten_config, load_yaml_config
-from .emitter import create_run_event, emit_events
+from .action import CorrelatorValidationAction
+from .emitter import emit_events
