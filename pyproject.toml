@@ -61,6 +61,7 @@ dev = [
     "bandit[toml]>=1.7.0",
     "types-click>=7.1.0",
     "responses>=0.24.0",
+    "psycopg2-binary>=2.9.0",
 ]
 docs = [
     "sphinx>=7.0.0",
@@ -204,6 +205,7 @@ addopts = [
     "--cov-branch",
     "--strict-markers",
     "-v",
+    "-m", "not integration",
 ]
 markers = [
     "unit: Unit tests",
