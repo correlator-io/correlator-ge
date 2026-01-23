@@ -64,17 +64,14 @@ def create_mock_checkpoint_result(
     checkpoint_result.run_id.run_name = run_name
     checkpoint_result.run_id.run_time = run_time
 
-    # Run results - dict of validation_id -> {"validation_result": ..., "actions_results": ...}
-    # This matches the real GE CheckpointResult structure
+    # Run results - dict of validation_id -> ExpectationSuiteValidationResult
+    # GE 1.x maps validation_id directly to validation result (not wrapped in dict)
     if validation_results is None:
         validation_id = create_mock_validation_id()
         validation_result = create_mock_validation_result(success=success)
         validation_results = [(validation_id, validation_result)]
 
-    checkpoint_result.run_results = {
-        vid: {"validation_result": vr, "actions_results": {}}
-        for vid, vr in validation_results
-    }
+    checkpoint_result.run_results = dict(validation_results)
 
     return checkpoint_result
 

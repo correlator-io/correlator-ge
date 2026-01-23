@@ -20,6 +20,27 @@ Links Great Expectations validation results to data pipeline incidents:
 
 ---
 
+## Why It Matters
+
+**The Problem:** When data quality checks fail, teams need to trace back through pipeline runs and lineage graphs to
+find what upstream job introduced the bad data.
+
+**What You Get:** `ge-correlator` automatically connects your validation failures to their upstream causes, making it
+easier to identify which job run introduced the data quality issue.
+
+**Key Benefits:**
+
+- **Faster triage**: Validation failures linked to upstream job runs
+- **Context in one place**: Data quality results correlated with lineage
+- **Standard integration**: Uses OpenLineage DataQualityAssertions facets
+- **Non-invasive setup**: Adds to existing checkpoint configuration
+- **Fire-and-forget**: Emission errors don't fail your checkpoints
+
+**Built on Standards:** Uses OpenLineage, the industry standard for data lineage. No vendor lock-in, no proprietary
+formats.
+
+---
+
 ## Quick Start
 
 ### installation
@@ -72,27 +93,6 @@ See [Architecture](docs/ARCHITECTURE.md) for technical details.
 
 ---
 
-## Why It Matters
-
-**The Problem:** When data quality checks fail, teams need to trace back through pipeline runs and lineage graphs to
-find what upstream job introduced the bad data.
-
-**What You Get:** `ge-correlator` automatically connects your validation failures to their upstream causes, making it
-easier to identify which job run introduced the data quality issue.
-
-**Key Benefits:**
-
-- **Faster triage**: Validation failures linked to upstream job runs
-- **Context in one place**: Data quality results correlated with lineage
-- **Standard integration**: Uses OpenLineage DataQualityAssertions facets
-- **Non-invasive setup**: Adds to existing checkpoint configuration
-- **Fire-and-forget**: Emission errors don't fail your checkpoints
-
-**Built on Standards:** Uses OpenLineage, the industry standard for data lineage. No vendor lock-in, no proprietary
-formats.
-
----
-
 ## Versioning
 
 This package follows [Semantic Versioning](https://semver.org/) with the following guidelines:
@@ -100,7 +100,7 @@ This package follows [Semantic Versioning](https://semver.org/) with the followi
 - **0.x.y versions** (e.g., 0.1.0, 0.2.0) indicate **initial development phase**:
     - The API is not yet stable and may change between minor versions
     - Features may be added, modified, or removed without major version changes
-    - Not recommended for production-critical systems without pinned versions
+    - For production-critical systems, please pin a version that works in your environment
 
 - **1.0.0 and above** will indicate a **stable API** with semantic versioning guarantees:
     - MAJOR version for incompatible API changes

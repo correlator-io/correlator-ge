@@ -1,0 +1,166 @@
+{
+  "_metadata": {
+    "generated_at": "2026-01-20T12:57:48.976115+00:00",
+    "checkpoint_name": "success_checkpoint",
+    "ge_version": "1.10.0"
+  },
+  "success": true,
+  "run_id": {
+    "run_name": "test-success-run",
+    "run_time": "2026-01-20T12:57:48.940173+00:00"
+  },
+  "checkpoint_config": {
+    "name": "success_checkpoint"
+  },
+  "run_results": {
+    "taxi_expectations::test-success-run::taxi_datasource-taxi_clean": {
+      "validation_id": {
+        "expectation_suite_identifier": {
+          "name": "taxi_expectations"
+        },
+        "run_id": {
+          "run_name": "test-success-run",
+          "run_time": "2026-01-20T12:57:48.940173+00:00"
+        },
+        "batch_identifier": "taxi_datasource-taxi_clean"
+      },
+      "validation_result": {
+        "success": true,
+        "results": [
+          {
+            "success": true,
+            "expectation_config": {
+              "expectation_type": "expect_column_values_to_not_be_null",
+              "kwargs": {
+                "batch_id": "taxi_datasource-taxi_clean",
+                "column": "vendor_id"
+              }
+            },
+            "result": {
+              "element_count": null,
+              "unexpected_count": null,
+              "unexpected_percent": null,
+              "partial_unexpected_list": []
+            }
+          },
+          {
+            "success": true,
+            "expectation_config": {
+              "expectation_type": "expect_column_values_to_be_in_set",
+              "kwargs": {
+                "batch_id": "taxi_datasource-taxi_clean",
+                "column": "vendor_id",
+                "value_set": [
+                  1,
+                  2
+                ]
+              }
+            },
+            "result": {
+              "element_count": null,
+              "unexpected_count": null,
+              "unexpected_percent": null,
+              "partial_unexpected_list": []
+            }
+          },
+          {
+            "success": true,
+            "expectation_config": {
+              "expectation_type": "expect_column_values_to_not_be_null",
+              "kwargs": {
+                "batch_id": "taxi_datasource-taxi_clean",
+                "column": "passenger_count"
+              }
+            },
+            "result": {
+              "element_count": null,
+              "unexpected_count": null,
+              "unexpected_percent": null,
+              "partial_unexpected_list": []
+            }
+          },
+          {
+            "success": true,
+            "expectation_config": {
+              "expectation_type": "expect_column_values_to_be_between",
+              "kwargs": {
+                "batch_id": "taxi_datasource-taxi_clean",
+                "column": "passenger_count",
+                "min_value": 1.0,
+                "max_value": 6.0
+              }
+            },
+            "result": {
+              "element_count": null,
+              "unexpected_count": null,
+              "unexpected_percent": null,
+              "partial_unexpected_list": []
+            }
+          },
+          {
+            "success": true,
+            "expectation_config": {
+              "expectation_type": "expect_column_values_to_be_between",
+              "kwargs": {
+                "batch_id": "taxi_datasource-taxi_clean",
+                "column": "fare_amount",
+                "min_value": 0.0,
+                "max_value": 500.0
+              }
+            },
+            "result": {
+              "element_count": null,
+              "unexpected_count": null,
+              "unexpected_percent": null,
+              "partial_unexpected_list": []
+            }
+          },
+          {
+            "success": true,
+            "expectation_config": {
+              "expectation_type": "expect_column_values_to_be_between",
+              "kwargs": {
+                "batch_id": "taxi_datasource-taxi_clean",
+                "column": "trip_distance",
+                "min_value": 0.0
+              }
+            },
+            "result": {
+              "element_count": null,
+              "unexpected_count": null,
+              "unexpected_percent": null,
+              "partial_unexpected_list": []
+            }
+          }
+        ],
+        "meta": {
+          "great_expectations_version": "1.10.0",
+          "batch_spec": {
+            "datasource_name": null,
+            "data_asset_name": null,
+            "batch_identifiers": {}
+          },
+          "batch_markers": {
+            "ge_load_time": "20260120T125748.943378Z",
+            "pandas_data_fingerprint": "650d0a7e1bb430176f8dbf279cb0cea9"
+          },
+          "active_batch_definition": {
+            "datasource_name": "taxi_datasource",
+            "data_asset_name": "taxi_clean"
+          },
+          "validation_id": "d8351104-ebb1-45a8-ba87-31e197bdf91e",
+          "checkpoint_id": "1e95c4cf-f8a8-40e4-8e7f-4a78e349a13b",
+          "run_id": "{\n  \"run_name\": \"test-success-run\",\n  \"run_time\": \"2026-01-20T13:57:48.940173+01:00\"\n}",
+          "validation_time": "2026-01-20 12:57:48.940173+00:00",
+          "batch_parameters": null
+        },
+        "statistics": {
+          "evaluated_expectations": 0,
+          "successful_expectations": 0,
+          "unsuccessful_expectations": 0,
+          "success_percent": 0.0
+        }
+      }
+    }
+  }
+}

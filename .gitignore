@@ -179,3 +179,6 @@ __marimo__/
 
 # Notes
 notes
+
+# Test fixture generator - ignore sample project, keep scripts
+tests/fixtures/ge_sample_project/

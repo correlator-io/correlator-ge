@@ -20,6 +20,7 @@ Requirements:
 import logging
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
+from uuid import NAMESPACE_URL, uuid5
 
 import great_expectations
 from great_expectations.checkpoint import ValidationAction
@@ -214,18 +215,20 @@ class CorrelatorValidationAction(ValidationAction):
         run_time = extract_run_time(checkpoint_result)
 
         # Process each validation result
-        # GE's run_results maps validation_id -> {"validation_result": ..., "actions_results": ...}
-        for validation_id, run_result in checkpoint_result.run_results.items():
-            # Extract validation_result from the run_result dict
-            validation_result = run_result["validation_result"]
+        # GE 1.x: run_results maps validation_id -> ExpectationSuiteValidationResult directly
+        for validation_id, validation_result in checkpoint_result.run_results.items():
 
             # Extract job name
             job_name = extract_job_name(checkpoint_result, validation_id)
 
+            # Generate unique run_id per validation to avoid duplicate START events
+            # Each validation in a checkpoint gets its own OpenLineage run
+            validation_run_id = str(uuid5(NAMESPACE_URL, f"{run_id}:{validation_id}"))
+
             # Build Job and Run objects
             # Note: type: ignore needed because openlineage-python lacks type stubs
             job = Job(namespace=self.job_namespace, name=job_name)  # type: ignore[call-arg]
-            run = Run(runId=run_id)  # type: ignore[call-arg]
+            run = Run(runId=validation_run_id)  # type: ignore[call-arg]
 
             # Create START event (uses run_time as event time)
             # Note: OpenLineage expects eventTime as ISO format string

@@ -85,8 +85,9 @@ jobs:
       - name: Run unit tests
         run: make run test unit
 
-      - name: Run integration tests
-        run: make run test integration
+      # Integration tests require Correlator backend - run locally before release
+      # - name: Run integration tests
+      #   run: make run test integration
 
       - name: Run tests with coverage
         run: make run coverage
