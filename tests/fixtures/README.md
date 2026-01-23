@@ -2,18 +2,21 @@
 
 JSON fixtures generated from Great Expectations 1.10.0 checkpoint runs.
 
-## Fixture Files
+## Directory Structure
 
-| File                              | Description                    |
-|-----------------------------------|--------------------------------|
-| `checkpoint_result_success.json`  | All expectations pass          |
-| `checkpoint_result_failure.json`  | Multiple expectation failures  |
-| `checkpoint_result_multiple.json` | 2 validations: 1 pass + 1 fail |
-
-## Requirements
-
-- Great Expectations >= 1.3.0
-- pandas
+```
+tests/fixtures/
+├── scripts/                        # Generator scripts (committed)
+│   ├── generate_sample_data.py     # Creates taxi_clean.csv and taxi_dirty.csv
+│   ├── setup_ge.py                 # Configures ephemeral GE context
+│   └── capture_fixtures.py         # Runs checkpoints, serializes to JSON
+├── ge_sample_project/              # Runtime artifacts (gitignored)
+│   └── data/                       # Generated CSV files
+├── checkpoint_result_success.json  # All expectations pass
+├── checkpoint_result_failure.json  # Multiple expectation failures
+├── checkpoint_result_multiple.json # 2 validations: 1 pass + 1 fail
+└── README.md                       # This file
+```
 
 ## Regenerating Fixtures
 
@@ -27,19 +30,11 @@ python generate_sample_data.py
 python capture_fixtures.py
 ```
 
-## Scripts
-
-| Script                    | Purpose                                   |
-|---------------------------|-------------------------------------------|
-| `generate_sample_data.py` | Creates taxi_clean.csv and taxi_dirty.csv |
-| `setup_ge.py`             | Configures ephemeral GE context           |
-| `capture_fixtures.py`     | Runs checkpoints, serializes to JSON      |
-
 ## More Information
 
 See [docs/GENERATE_FIXTURES.md](../../docs/GENERATE_FIXTURES.md) for:
 
-- Fixture structure and design rationale
-- Sample data specifications
-- Integration test fixture helpers
+- Fixture JSON structure and design rationale
+- Sample data specifications (taxi_clean.csv vs taxi_dirty.csv)
+- Fixture helper utilities (`tests/helpers/fixture_helpers.py`)
 - Troubleshooting guide

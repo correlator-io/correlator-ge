@@ -22,25 +22,7 @@ This approach:
 
 ---
 
-## 1. Directory Structure
-
-```
-tests/fixtures/
-├── scripts/                        # Generator scripts
-│   ├── generate_sample_data.py     # Creates taxi_clean.csv and taxi_dirty.csv
-│   ├── setup_ge.py                 # Configures ephemeral GE context
-│   └── capture_fixtures.py         # Runs checkpoints, serializes to JSON
-├── ge_sample_project/              # Sample GE project (gitignored)
-│   └── data/                       # Generated CSV files
-├── checkpoint_result_success.json  # All expectations pass
-├── checkpoint_result_failure.json  # Multiple expectations fail
-├── checkpoint_result_multiple.json # Mixed: 1 pass + 1 fail
-└── README.md
-```
-
----
-
-## 2. Fixture Structure
+## 1. Fixture Structure
 
 Each fixture matches the GE 1.x `CheckpointResult` structure:
 
@@ -99,7 +81,7 @@ Each fixture matches the GE 1.x `CheckpointResult` structure:
 
 ---
 
-## 3. Sample Data Design
+## 2. Sample Data Design
 
 > **Note:** This is **simplified test data**, not the official GE tutorial dataset
 > (`yellow_tripdata_sample_2019-01.csv`). We use a minimal 5-column, 10-row dataset
@@ -138,7 +120,7 @@ The generator creates minimal taxi-style data designed to exercise specific expe
 
 ---
 
-## 4. Regenerating Fixtures
+## 3. Regenerating Fixtures
 
 At the time of creation of this document, **GE Version 1.10.0** was used to generate the fixtures.
 
@@ -187,7 +169,7 @@ make run test unit
 
 ---
 
-## 5. Fixture Helpers
+## 4. Fixture Helpers
 
 The `tests/helpers/fixture_helpers.py` module provides utilities for loading fixtures:
 
@@ -228,7 +210,7 @@ checkpoint = create_checkpoint_result(
 
 ---
 
-## 6. Integration Test Fixtures
+## 5. Integration Test Fixtures
 
 The `tests/integration/conftest.py` provides pytest fixtures for integration tests:
 
