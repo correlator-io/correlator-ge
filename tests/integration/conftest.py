@@ -1,4 +1,4 @@
-"""Integration test fixtures for correlator-ge.
+"""Integration test fixtures for ge-correlator.
 
 These fixtures support integration tests against a real Correlator backend.
 

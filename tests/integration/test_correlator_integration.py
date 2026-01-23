@@ -1,4 +1,4 @@
-"""Integration tests for correlator-ge against real Correlator backend.
+"""Integration tests for ge-correlator against real Correlator backend.
 
 These tests validate the full roundtrip:
     GE CheckpointResult → CorrelatorValidationAction → Correlator API → Database
