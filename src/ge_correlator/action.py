@@ -17,13 +17,20 @@ Requirements:
     - Great Expectations >= 1.3.0
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid5
 
 import great_expectations
-from great_expectations.checkpoint import ValidationAction
+from great_expectations.checkpoint import CheckpointResult, ValidationAction
+from great_expectations.checkpoint.actions import ActionContext
+from great_expectations.core import ExpectationSuiteValidationResult
+from great_expectations.data_context.types.resource_identifiers import (
+    ValidationResultIdentifier,
+)
 from openlineage.client.event_v2 import (
     InputDataset,
     Job,
@@ -120,15 +127,15 @@ class CorrelatorValidationAction(ValidationAction):
 
     # Configuration fields (Pydantic field declarations)
     correlator_endpoint: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     emit_on: Literal["all", "success", "failure"] = "all"
     job_namespace: str = "great_expectations://default"
     timeout: int = 30
 
     def run(
         self,
-        checkpoint_result: Any,
-        action_context: Optional[Any] = None,  # noqa: ARG002
+        checkpoint_result: CheckpointResult,
+        action_context: ActionContext | None = None,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Execute the action after checkpoint validation.
 
@@ -138,7 +145,7 @@ class CorrelatorValidationAction(ValidationAction):
 
         Args:
             checkpoint_result: GE CheckpointResult object.
-            action_context: Optional action context (unused).
+            action_context: Optional action context for sharing results between actions.
 
         Returns:
             Dict with class name, success status, and optional message/error.
@@ -180,7 +187,7 @@ class CorrelatorValidationAction(ValidationAction):
                 "error": str(e),
             }
 
-    def _should_emit(self, checkpoint_result: Any) -> bool:
+    def _should_emit(self, checkpoint_result: CheckpointResult) -> bool:
         """Check if events should be emitted based on emit_on config.
 
         Args:
@@ -196,7 +203,7 @@ class CorrelatorValidationAction(ValidationAction):
         # emit_on == "failure"
         return checkpoint_result.success is False
 
-    def _build_events(self, checkpoint_result: Any) -> list[RunEvent]:
+    def _build_events(self, checkpoint_result: CheckpointResult) -> list[RunEvent]:
         """Build OpenLineage events from checkpoint result.
 
         Creates START and COMPLETE/FAIL events for each validation in the
@@ -215,7 +222,8 @@ class CorrelatorValidationAction(ValidationAction):
         run_time = extract_run_time(checkpoint_result)
 
         # Process each validation result
-        # GE 1.x: run_results maps validation_id -> ExpectationSuiteValidationResult directly
+        validation_id: ValidationResultIdentifier
+        validation_result: ExpectationSuiteValidationResult
         for validation_id, validation_result in checkpoint_result.run_results.items():
 
             # Extract job name

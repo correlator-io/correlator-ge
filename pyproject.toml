@@ -43,6 +43,7 @@ dependencies = [
     "click>=8.1.0",
     "requests>=2.28.0",
     "PyYAML>=6.0",
+    "uuid7>=0.1.0",
 ]
 
 [project.license]
@@ -177,6 +178,7 @@ overrides = [
     { module = "tests.*", disallow_untyped_defs = false },
     { module = "openlineage.*", ignore_missing_imports = true },
     { module = "great_expectations.*", ignore_missing_imports = true },
+    { module = "uuid7", ignore_missing_imports = true },
 ]
 
 [tool.pytest.ini_options]

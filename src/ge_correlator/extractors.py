@@ -14,17 +14,29 @@ Requirements:
     - Great Expectations >= 1.3.0
 """
 
+from __future__ import annotations
+
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from great_expectations.checkpoint import CheckpointResult
+from great_expectations.core import (
+    ExpectationSuiteValidationResult,
+    ExpectationValidationResult,
+)
+from great_expectations.data_context.types.resource_identifiers import (
+    ValidationResultIdentifier,
+)
+from uuid_extensions import uuid7 as uuid7_lib  # type: ignore[import-untyped]
+
 logger = logging.getLogger(__name__)
 
 
 def extract_job_name(
-    checkpoint_result: Any,
-    validation_id: Any,
+    checkpoint_result: CheckpointResult,
+    validation_id: ValidationResultIdentifier,
 ) -> str:
     """Extract job name from checkpoint and validation.
 
@@ -43,15 +55,14 @@ def extract_job_name(
     """
     # Extract checkpoint name from config
     checkpoint_name = "unknown_checkpoint"
-    if hasattr(checkpoint_result, "checkpoint_config"):
-        config = checkpoint_result.checkpoint_config
-        if hasattr(config, "name") and config.name:
-            checkpoint_name = config.name
+    if checkpoint_result.checkpoint_config and checkpoint_result.checkpoint_config.name:
+        checkpoint_name = checkpoint_result.checkpoint_config.name
 
     # Extract suite name from validation_id
     suite_name = "unknown_suite"
-    if hasattr(validation_id, "expectation_suite_identifier"):
-        suite_id = validation_id.expectation_suite_identifier
+    suite_id = validation_id.expectation_suite_identifier
+    if suite_id:
+        # Try 'name' attribute first (GE 1.3+), fallback to 'expectation_suite_name'
         if hasattr(suite_id, "name") and suite_id.name:
             suite_name = suite_id.name
         elif (
@@ -63,12 +74,15 @@ def extract_job_name(
     return f"{checkpoint_name}.{suite_name}"
 
 
-def extract_run_id(checkpoint_result: Any) -> str:
+def extract_run_id(checkpoint_result: CheckpointResult) -> str:
     """Extract or generate a unique run ID as UUID.
 
     OpenLineage requires runId to be a valid UUID. If GE provides a run_name,
     we generate a deterministic UUID from it using uuid5 with a namespace.
     This ensures the same run_name always produces the same UUID for correlation.
+
+    When no run_name is available, generates a UUID7 (time-ordered) for better
+    database indexing and chronological sorting per OpenLineage recommendations.
 
     Args:
         checkpoint_result: GE CheckpointResult object.
@@ -83,17 +97,16 @@ def extract_run_id(checkpoint_result: Any) -> str:
     # Namespace UUID for GE runs (deterministic generation)
     GE_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
-    if hasattr(checkpoint_result, "run_id"):
-        run_id = checkpoint_result.run_id
-        if hasattr(run_id, "run_name") and run_id.run_name:
-            # Generate deterministic UUID from run_name for consistency
-            return str(uuid.uuid5(GE_NAMESPACE, str(run_id.run_name)))
+    if checkpoint_result.run_id and checkpoint_result.run_id.run_name:
+        # Generate deterministic UUID from run_name for consistency
+        return str(uuid.uuid5(GE_NAMESPACE, str(checkpoint_result.run_id.run_name)))
 
-    # Generate random UUID if run_id not available
-    return str(uuid.uuid4())
+    # Generate time-ordered UUID7 if run_id not available
+    # UUID7 provides better database indexing and chronological sorting
+    return str(uuid7_lib())
 
 
-def extract_run_time(checkpoint_result: Any) -> datetime:
+def extract_run_time(checkpoint_result: CheckpointResult) -> datetime:
     """Extract run start time from checkpoint.
 
     Uses GE's run_id.run_time if available, otherwise returns current UTC time.
@@ -108,20 +121,18 @@ def extract_run_time(checkpoint_result: Any) -> datetime:
         >>> run_time = extract_run_time(checkpoint_result)
         >>> # Returns: datetime(2024, 1, 15, 10, 30, 0)
     """
-    if hasattr(checkpoint_result, "run_id"):
-        run_id = checkpoint_result.run_id
-        if hasattr(run_id, "run_time") and run_id.run_time:
-            run_time = run_id.run_time
-            # Ensure we return a datetime object
-            if isinstance(run_time, datetime):
-                return run_time
+    if checkpoint_result.run_id and checkpoint_result.run_id.run_time:
+        run_time = checkpoint_result.run_id.run_time
+        # Ensure we return a datetime object
+        if isinstance(run_time, datetime):
+            return run_time
 
     # Return current UTC time if run_time not available
     return datetime.now(timezone.utc)
 
 
 def extract_datasets(
-    validation_result: Any,
+    validation_result: ExpectationSuiteValidationResult,
 ) -> list[dict[str, Any]]:
     """Extract dataset information from validation result.
 
@@ -140,10 +151,17 @@ def extract_datasets(
     """
     datasets: list[dict[str, Any]] = []
 
-    # Get meta dict from validation result
+    # Get meta dict from validation result (meta can be dict, object, or None)
     meta: dict[str, Any] = {}
-    if hasattr(validation_result, "meta") and validation_result.meta:
-        meta = validation_result.meta
+    if validation_result.meta:
+        # meta can be ExpectationSuiteValidationResultMeta or dict
+        if isinstance(validation_result.meta, dict):
+            meta = dict(validation_result.meta)
+        else:
+            # ExpectationSuiteValidationResultMeta - convert to dict via vars()
+            # Note: type: ignore needed because mypy incorrectly infers unreachable
+            # due to GE's complex union type for meta field
+            meta = dict(vars(validation_result.meta))  # type: ignore[unreachable]
 
     # Extract from batch_spec
     batch_spec = meta.get("batch_spec", {})
@@ -190,7 +208,7 @@ def extract_datasets(
 
 
 def extract_data_quality_facets(
-    validation_result: Any,
+    validation_result: ExpectationSuiteValidationResult,
     producer: str,
 ) -> dict[str, Any]:
     """Extract data quality metrics as OpenLineage facets.
@@ -238,39 +256,34 @@ def extract_data_quality_facets(
     # Build DataQualityAssertions facet from results
     assertions: list[dict[str, Any]] = []
 
-    results: list[Any] = []
-    if hasattr(validation_result, "results") and validation_result.results:
-        results = validation_result.results
+    results: list[ExpectationValidationResult] = validation_result.results or []
 
     for result in results:
         assertion: dict[str, Any] = {
             "assertion": "unknown",
-            "success": False,
+            "success": bool(result.success) if result.success is not None else False,
         }
 
-        # Extract success status
-        if hasattr(result, "success"):
-            assertion["success"] = bool(result.success)
-
-        # Extract expectation type and column
-        if hasattr(result, "expectation_config"):
-            config = result.expectation_config
-
-            # Get expectation type
-            if hasattr(config, "expectation_type"):
+        # Extract expectation type and column from config
+        config = result.expectation_config
+        if config:
+            # Get expectation type (try expectation_type first, then type)
+            if hasattr(config, "expectation_type") and config.expectation_type:
                 assertion["assertion"] = config.expectation_type
-            elif hasattr(config, "type"):
+            elif hasattr(config, "type") and config.type:
                 assertion["assertion"] = config.type
 
             # Get column name if applicable
-            kwargs = {}
+            # Note: kwargs access varies by GE version, keep defensive pattern
+            kwargs: dict[str, Any] = {}
             if hasattr(config, "kwargs") and config.kwargs:
-                kwargs = config.kwargs
+                kwargs = dict(config.kwargs) if isinstance(config.kwargs, dict) else {}
             elif hasattr(config, "to_json_dict"):
                 # GE 1.x may use different structure
                 try:
                     json_dict = config.to_json_dict()
-                    kwargs = json_dict.get("kwargs", {})
+                    raw_kwargs = json_dict.get("kwargs", {})
+                    kwargs = dict(raw_kwargs) if isinstance(raw_kwargs, dict) else {}
                 except Exception:  # nosec B110
                     # Fallback silently - kwargs extraction is best-effort
                     pass
