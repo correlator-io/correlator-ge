@@ -265,76 +265,57 @@ class TestExtractJobName:
 class TestExtractRunId:
     """Tests for extract_run_id() function."""
 
-    def test_extracts_run_name_and_generates_deterministic_uuid(self) -> None:
-        """Generates deterministic UUID from checkpoint's run_name."""
-        checkpoint_result = create_mock_checkpoint_result(run_name="manual-2024-01-15")
+    def test_generates_valid_uuid7(self) -> None:
+        """Generates valid UUID7 per OpenLineage recommendation."""
+        create_mock_checkpoint_result(run_name="manual-2024-01-15")
 
-        run_id = extract_run_id(checkpoint_result)
+        run_id = extract_run_id()
 
         # Verify it's a valid UUID string (OpenLineage requirement)
         parsed = uuid.UUID(run_id)
         assert str(parsed) == run_id
 
-        # Verify it's deterministic (same input = same UUID)
-        checkpoint_result_2 = create_mock_checkpoint_result(
-            run_name="manual-2024-01-15"
-        )
-        run_id_2 = extract_run_id(checkpoint_result_2)
-        assert run_id == run_id_2
+        # Verify it's UUID version 7 (time-ordered)
+        assert parsed.version == 7
+
+    def test_generates_unique_uuid_each_call(self) -> None:
+        """Each call generates a unique UUID (not deterministic)."""
+        create_mock_checkpoint_result(run_name="same-run-name")
+
+        run_id_1 = extract_run_id()
+        run_id_2 = extract_run_id()
+
+        # UUIDs should be different (not deterministic)
+        assert run_id_1 != run_id_2
+
+        # Both should be valid UUID7
+        assert uuid.UUID(run_id_1).version == 7
+        assert uuid.UUID(run_id_2).version == 7
 
     def test_generates_uuid_when_run_id_missing(self) -> None:
-        """Generates UUID when run_id is not available."""
+        """Generates UUID7 even when run_id is not available."""
         checkpoint_result = MagicMock()
         checkpoint_result.run_id = None
 
-        run_id = extract_run_id(checkpoint_result)
+        run_id = extract_run_id()
 
-        # Verify it's a valid UUID string
+        # Verify it's a valid UUID7 string
         parsed = uuid.UUID(run_id)
         assert str(parsed) == run_id
+        assert parsed.version == 7
 
     def test_generates_uuid_when_run_name_missing(self) -> None:
-        """Generates UUID when run_id.run_name is None."""
+        """Generates UUID7 when run_id.run_name is None."""
         checkpoint_result = MagicMock()
         checkpoint_result.run_id = MagicMock()
         checkpoint_result.run_id.run_name = None
 
-        run_id = extract_run_id(checkpoint_result)
+        run_id = extract_run_id()
 
-        # Verify it's a valid UUID string
+        # Verify it's a valid UUID7 string
         parsed = uuid.UUID(run_id)
         assert str(parsed) == run_id
-
-    def test_generates_uuid_when_run_name_empty(self) -> None:
-        """Generates UUID when run_id.run_name is empty string."""
-        checkpoint_result = MagicMock()
-        checkpoint_result.run_id = MagicMock()
-        checkpoint_result.run_id.run_name = ""
-
-        run_id = extract_run_id(checkpoint_result)
-
-        # Verify it's a valid UUID string
-        parsed = uuid.UUID(run_id)
-        assert str(parsed) == run_id
-
-    def test_converts_run_name_to_uuid_deterministically(self) -> None:
-        """Converts non-string run_name to deterministic UUID."""
-        checkpoint_result = MagicMock()
-        checkpoint_result.run_id = MagicMock()
-        checkpoint_result.run_id.run_name = 12345  # Integer
-
-        run_id = extract_run_id(checkpoint_result)
-
-        # Verify it's a valid UUID string
-        parsed = uuid.UUID(run_id)
-        assert str(parsed) == run_id
-
-        # Verify it's deterministic
-        checkpoint_result_2 = MagicMock()
-        checkpoint_result_2.run_id = MagicMock()
-        checkpoint_result_2.run_id.run_name = 12345
-        run_id_2 = extract_run_id(checkpoint_result_2)
-        assert run_id == run_id_2
+        assert parsed.version == 7
 
 
 # =============================================================================
@@ -481,6 +462,90 @@ class TestExtractDatasets:
 
         assert datasets[0]["namespace"] == "bigquery://project-123"
         assert datasets[0]["name"] == "dataset.table$20240115"
+
+    def test_includes_schema_from_batch_spec(self) -> None:
+        """Includes schema_name prefix when available in batch_spec."""
+        validation_result = MagicMock()
+        validation_result.meta = {
+            "batch_spec": {
+                "datasource_name": "demo_postgres",
+                "data_asset_name": "customers",
+                "schema_name": "marts",
+            },
+        }
+
+        datasets = extract_datasets(validation_result)
+
+        assert len(datasets) == 1
+        assert datasets[0]["namespace"] == "demo_postgres"
+        assert datasets[0]["name"] == "marts.customers"
+
+    def test_includes_schema_from_active_batch_definition(self) -> None:
+        """Falls back to schema_name from active_batch_definition."""
+        validation_result = MagicMock()
+        validation_result.meta = {
+            "batch_spec": {
+                "datasource_name": "demo_postgres",
+                "data_asset_name": "orders",
+            },
+            "active_batch_definition": {
+                "schema_name": "staging",
+            },
+        }
+
+        datasets = extract_datasets(validation_result)
+
+        assert len(datasets) == 1
+        assert datasets[0]["name"] == "staging.orders"
+
+    def test_no_schema_prefix_when_schema_missing(self) -> None:
+        """Does not add schema prefix when schema_name not available."""
+        validation_result = MagicMock()
+        validation_result.meta = {
+            "batch_spec": {
+                "datasource_name": "demo_postgres",
+                "data_asset_name": "customers",
+            },
+        }
+
+        datasets = extract_datasets(validation_result)
+
+        assert len(datasets) == 1
+        assert datasets[0]["name"] == "customers"
+
+    def test_no_schema_prefix_when_schema_empty(self) -> None:
+        """Does not add schema prefix when schema_name is empty string."""
+        validation_result = MagicMock()
+        validation_result.meta = {
+            "batch_spec": {
+                "datasource_name": "demo_postgres",
+                "data_asset_name": "customers",
+                "schema_name": "",
+            },
+        }
+
+        datasets = extract_datasets(validation_result)
+
+        assert len(datasets) == 1
+        assert datasets[0]["name"] == "customers"
+
+    def test_batch_spec_schema_takes_precedence(self) -> None:
+        """batch_spec schema_name takes precedence over active_batch_definition."""
+        validation_result = MagicMock()
+        validation_result.meta = {
+            "batch_spec": {
+                "datasource_name": "demo_postgres",
+                "data_asset_name": "customers",
+                "schema_name": "marts",
+            },
+            "active_batch_definition": {
+                "schema_name": "staging",
+            },
+        }
+
+        datasets = extract_datasets(validation_result)
+
+        assert datasets[0]["name"] == "marts.customers"
 
 
 # =============================================================================
@@ -643,3 +708,322 @@ class TestExtractDataQualityFacets:
 
         assertions = facets["dataQualityAssertions"]["assertions"]
         assert assertions[0]["assertion"] == "expect_column_to_exist"
+
+    def test_message_populated_for_failed_assertion_with_unexpected_count(self) -> None:
+        """Message populated for failed assertion with unexpected_count."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = False
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = (
+            "expect_column_values_to_not_be_null"
+        )
+        result.expectation_config.kwargs = {"column": "email"}
+        result.result = {
+            "unexpected_count": 5,
+            "unexpected_percent": 0.33,
+            "element_count": 1500,
+        }
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert "message" in assertions[0]
+        assert "5" in assertions[0]["message"]
+        assert "0.33" in assertions[0]["message"]
+
+    def test_message_populated_for_failed_assertion_with_observed_value(self) -> None:
+        """Message populated for failed assertion with observed_value only."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = False
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = (
+            "expect_table_row_count_to_be_between"
+        )
+        result.expectation_config.kwargs = {}
+        result.result = {"observed_value": 0}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert "message" in assertions[0]
+        assert "0" in assertions[0]["message"]
+
+    def test_message_populated_for_exception(self) -> None:
+        """Message populated from exception_info when exception raised."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = False
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = "expect_column_to_exist"
+        result.expectation_config.kwargs = {"column": "missing_col"}
+        result.result = {}
+        result.exception_info = {
+            "raised_exception": True,
+            "exception_message": "Column 'missing_col' not found in table",
+        }
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert "message" in assertions[0]
+        assert "Column 'missing_col' not found" in assertions[0]["message"]
+
+    def test_no_message_for_successful_assertion(self) -> None:
+        """No message populated for successful assertions."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = True
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = (
+            "expect_column_values_to_not_be_null"
+        )
+        result.expectation_config.kwargs = {"column": "email"}
+        result.result = {"unexpected_count": 0, "element_count": 1500}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert "message" not in assertions[0]
+
+    def test_message_fallback_when_result_empty(self) -> None:
+        """Fallback message when result dict is empty and no exception."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = False
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = "expect_column_to_exist"
+        result.expectation_config.kwargs = {}
+        result.result = {}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert "message" in assertions[0]
+        assert assertions[0]["message"] == "Validation failed"
+
+    def test_duration_added_when_provided(self) -> None:
+        """Duration added to assertions when duration_ms_per_expectation > 0."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = True
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = "expect_column_to_exist"
+        result.expectation_config.kwargs = {"column": "id"}
+        result.result = {}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(
+            validation_result,
+            producer=TEST_PRODUCER,
+            duration_ms_per_expectation=42,
+        )
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert assertions[0]["durationMs"] == 42
+
+    def test_no_duration_when_zero(self) -> None:
+        """No durationMs field when duration_ms_per_expectation is 0."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = True
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = "expect_column_to_exist"
+        result.expectation_config.kwargs = {}
+        result.result = {}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(
+            validation_result,
+            producer=TEST_PRODUCER,
+            duration_ms_per_expectation=0,
+        )
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert "durationMs" not in assertions[0]
+
+    def test_duration_distributed_across_expectations(self) -> None:
+        """Same duration applied to each expectation."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result1 = MagicMock()
+        result1.success = True
+        result1.expectation_config = MagicMock()
+        result1.expectation_config.expectation_type = "expect_column_to_exist"
+        result1.expectation_config.kwargs = {"column": "id"}
+        result1.result = {}
+        result1.exception_info = {"raised_exception": False}
+
+        result2 = MagicMock()
+        result2.success = True
+        result2.expectation_config = MagicMock()
+        result2.expectation_config.expectation_type = "expect_column_to_exist"
+        result2.expectation_config.kwargs = {"column": "name"}
+        result2.result = {}
+        result2.exception_info = {"raised_exception": False}
+
+        validation_result.results = [result1, result2]
+
+        facets = extract_data_quality_facets(
+            validation_result,
+            producer=TEST_PRODUCER,
+            duration_ms_per_expectation=100,
+        )
+
+        assertions = facets["dataQualityAssertions"]["assertions"]
+        assert len(assertions) == 2
+        assert assertions[0]["durationMs"] == 100
+        assert assertions[1]["durationMs"] == 100
+
+    def test_row_count_extracted_from_row_count_expectation(self) -> None:
+        """rowCount populated from expect_table_row_count_* expectations."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = True
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = (
+            "expect_table_row_count_to_be_between"
+        )
+        result.expectation_config.kwargs = {}
+        result.result = {"observed_value": 1500}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assert facets["dataQualityMetrics"]["rowCount"] == 1500
+
+    def test_null_count_extracted_from_not_null_expectation(self) -> None:
+        """columnMetrics.nullCount populated from expect_column_values_to_not_be_null."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = False
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = (
+            "expect_column_values_to_not_be_null"
+        )
+        result.expectation_config.kwargs = {"column": "email"}
+        result.result = {"unexpected_count": 5, "element_count": 1500}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assert facets["dataQualityMetrics"]["columnMetrics"]["email"]["nullCount"] == 5
+
+    def test_be_null_expectation_excluded_from_null_count(self) -> None:
+        """expect_column_values_to_be_null does NOT populate nullCount.
+
+        This expectation has inverted semantics: unexpected_count represents
+        non-null values, not null values. Including it would report incorrect
+        nullCount metrics.
+        """
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = False
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = "expect_column_values_to_be_null"
+        result.expectation_config.kwargs = {"column": "deleted_at"}
+        # unexpected_count=10 means 10 NON-NULL values, not 10 nulls
+        result.result = {"unexpected_count": 10, "element_count": 100}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        # Should NOT have nullCount for this column (inverted semantics)
+        assert "deleted_at" not in facets["dataQualityMetrics"]["columnMetrics"]
+
+    def test_distinct_count_extracted_from_unique_count_expectation(self) -> None:
+        """columnMetrics.distinctCount populated from unique value count expectations."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = True
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = (
+            "expect_column_unique_value_count_to_be_between"
+        )
+        result.expectation_config.kwargs = {"column": "status"}
+        result.result = {"observed_value": 5}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assert (
+            facets["dataQualityMetrics"]["columnMetrics"]["status"]["distinctCount"]
+            == 5
+        )
+
+    def test_multiple_column_metrics_aggregated(self) -> None:
+        """Multiple column metrics aggregated correctly."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+
+        result1 = MagicMock()
+        result1.success = False
+        result1.expectation_config = MagicMock()
+        result1.expectation_config.expectation_type = (
+            "expect_column_values_to_not_be_null"
+        )
+        result1.expectation_config.kwargs = {"column": "email"}
+        result1.result = {"unexpected_count": 5}
+        result1.exception_info = {"raised_exception": False}
+
+        result2 = MagicMock()
+        result2.success = False
+        result2.expectation_config = MagicMock()
+        result2.expectation_config.expectation_type = (
+            "expect_column_values_to_not_be_null"
+        )
+        result2.expectation_config.kwargs = {"column": "phone"}
+        result2.result = {"unexpected_count": 10}
+        result2.exception_info = {"raised_exception": False}
+
+        validation_result.results = [result1, result2]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        column_metrics = facets["dataQualityMetrics"]["columnMetrics"]
+        assert column_metrics["email"]["nullCount"] == 5
+        assert column_metrics["phone"]["nullCount"] == 10
+
+    def test_no_row_count_when_no_row_count_expectation(self) -> None:
+        """No rowCount in metrics when no row count expectation present."""
+        validation_result = MagicMock()
+        validation_result.statistics = {}
+        result = MagicMock()
+        result.success = True
+        result.expectation_config = MagicMock()
+        result.expectation_config.expectation_type = "expect_column_to_exist"
+        result.expectation_config.kwargs = {"column": "id"}
+        result.result = {}
+        result.exception_info = {"raised_exception": False}
+        validation_result.results = [result]
+
+        facets = extract_data_quality_facets(validation_result, producer=TEST_PRODUCER)
+
+        assert "rowCount" not in facets["dataQualityMetrics"]

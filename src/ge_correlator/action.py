@@ -218,7 +218,7 @@ class CorrelatorValidationAction(ValidationAction):
         events: list[RunEvent] = []
 
         # Get run metadata
-        run_id = extract_run_id(checkpoint_result)
+        run_id = extract_run_id()
         run_time = extract_run_time(checkpoint_result)
 
         # Process each validation result
@@ -255,9 +255,23 @@ class CorrelatorValidationAction(ValidationAction):
             else:
                 event_type = RunState.FAIL
 
+            # Calculate duration per expectation
+            # GE doesn't track per-expectation timing, so we distribute
+            # total checkpoint duration across all expectations
+            now = datetime.now(timezone.utc)
+            total_duration_ms = int((now - run_time).total_seconds() * 1000)
+            num_expectations = len(validation_result.results or [])
+            duration_ms_per_expectation = (
+                total_duration_ms // num_expectations if num_expectations > 0 else 0
+            )
+
             # Extract datasets and facets for COMPLETE/FAIL event
             datasets = extract_datasets(validation_result)
-            facets = extract_data_quality_facets(validation_result, producer=PRODUCER)
+            facets = extract_data_quality_facets(
+                validation_result,
+                producer=PRODUCER,
+                duration_ms_per_expectation=duration_ms_per_expectation,
+            )
 
             # Build input datasets with facets
             inputs: list[InputDataset] = []
