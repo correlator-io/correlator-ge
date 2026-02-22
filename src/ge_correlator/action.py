@@ -22,7 +22,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Any, Literal
-from uuid import NAMESPACE_URL, uuid5
 
 import great_expectations
 from great_expectations.checkpoint import CheckpointResult, ValidationAction
@@ -39,6 +38,7 @@ from openlineage.client.event_v2 import (
     RunState,
 )
 from openlineage.client.facet_v2 import parent_run
+from uuid_extensions import uuid7  # type: ignore[import-untyped]
 
 from ge_correlator import __version__
 from ge_correlator.emitter import emit_events
@@ -46,7 +46,6 @@ from ge_correlator.extractors import (
     extract_data_quality_facets,
     extract_datasets,
     extract_job_name,
-    extract_run_id,
     extract_run_time,
 )
 
@@ -233,6 +232,11 @@ class CorrelatorValidationAction(ValidationAction):
         Format matches OPENLINEAGE_PARENT_ID / OPENLINEAGE_ROOT_PARENT_ID
         convention used by the Airflow OpenLineage macros.
 
+        Uses rsplit to split from the right, which correctly handles
+        URI-style namespaces containing slashes (e.g., "airflow://demo").
+        This works because job_name uses dots (not slashes) and run_id
+        is a UUID (no slashes), so only the namespace can contain them.
+
         Args:
             value: Composite string in "namespace/job_name/run_id" format.
             field_name: Name of the field (for log messages).
@@ -243,7 +247,7 @@ class CorrelatorValidationAction(ValidationAction):
         if not value:
             return None
 
-        parts = value.split("/")
+        parts = value.rsplit("/", 2)
         if len(parts) != 3:
             logger.warning(
                 "%s cannot be parsed (expected 'namespace/job_name/run_id'): %s",
@@ -311,7 +315,6 @@ class CorrelatorValidationAction(ValidationAction):
         events: list[RunEvent] = []
 
         # Get run metadata
-        run_id = extract_run_id()
         run_time = extract_run_time(checkpoint_result)
 
         # Build parent facet once (same for all events)
@@ -330,7 +333,8 @@ class CorrelatorValidationAction(ValidationAction):
 
             # Generate unique run_id per validation to avoid duplicate START events
             # Each validation in a checkpoint gets its own OpenLineage run
-            validation_run_id = str(uuid5(NAMESPACE_URL, f"{run_id}:{validation_id}"))
+            # Uses uuid7 (time-ordered) to match OpenLineage recommendation
+            validation_run_id = str(uuid7())
 
             # Build Job and Run objects
             # Note: type: ignore needed because openlineage-python lacks type stubs

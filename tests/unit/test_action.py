@@ -668,6 +668,37 @@ class TestBuildEvents:
             "root_parent_id" in record.message.lower() for record in caplog.records
         )
 
+    def test_parent_id_with_uri_namespace(self) -> None:
+        """parent_id with URI-style namespace (containing slashes) is parsed correctly."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow://demo/demo_pipeline.ge_validate/019c8582-5c58-7c59-a16f-5bd41c03f6cd",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        parent_facet = events[0].run.facets["parent"]
+        assert parent_facet.job.namespace == "airflow://demo"
+        assert parent_facet.job.name == "demo_pipeline.ge_validate"
+        assert parent_facet.run.runId == "019c8582-5c58-7c59-a16f-5bd41c03f6cd"
+
+    def test_root_parent_id_with_uri_namespace(self) -> None:
+        """root_parent_id with URI-style namespace is parsed correctly."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow://demo/demo_pipeline.ge_validate/019c8582-5c58-7c59-a16f-5bd41c03f6cd",
+            root_parent_id="airflow://demo/demo_pipeline/019c8582-5c58-7c59-a16f-aaaaaaaaaaaa",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        parent_facet = events[0].run.facets["parent"]
+        assert parent_facet.root.job.namespace == "airflow://demo"
+        assert parent_facet.root.job.name == "demo_pipeline"
+        assert parent_facet.root.run.runId == "019c8582-5c58-7c59-a16f-aaaaaaaaaaaa"
+
     # --- Dataset namespace tests ---
 
     def test_dataset_namespace_overrides_extracted_namespace(self) -> None:
