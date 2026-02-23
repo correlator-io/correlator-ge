@@ -8,6 +8,8 @@ Test Coverage:
 - _should_emit() logic (all/success/failure modes)
 - run() method: event building and emission
 - Fire-and-forget error handling
+- Parent context via composite parent_id / root_parent_id strings
+- Dataset namespace override
 """
 
 from __future__ import annotations
@@ -240,6 +242,57 @@ class TestCorrelatorValidationActionInit:
         )
         assert action.type == "correlator"
 
+    def test_parent_id_defaults_to_empty(self) -> None:
+        """parent_id defaults to empty string."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+        )
+        assert action.parent_id == ""
+
+    def test_parent_id_can_be_set(self) -> None:
+        """parent_id accepts composite namespace/job_name/run_id format."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/demo_pipeline.ge_validate/019c7c79-b160-7a6f-0000-000000000000",
+        )
+        assert (
+            action.parent_id
+            == "airflow/demo_pipeline.ge_validate/019c7c79-b160-7a6f-0000-000000000000"
+        )
+
+    def test_root_parent_id_defaults_to_empty(self) -> None:
+        """root_parent_id defaults to empty string."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+        )
+        assert action.root_parent_id == ""
+
+    def test_root_parent_id_can_be_set(self) -> None:
+        """root_parent_id accepts composite namespace/job_name/run_id format."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            root_parent_id="airflow/demo_pipeline/019c7c79-b160-7a6f-0000-aaaaaaaaaaaa",
+        )
+        assert (
+            action.root_parent_id
+            == "airflow/demo_pipeline/019c7c79-b160-7a6f-0000-aaaaaaaaaaaa"
+        )
+
+    def test_dataset_namespace_defaults_to_none(self) -> None:
+        """dataset_namespace defaults to None."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+        )
+        assert action.dataset_namespace is None
+
+    def test_dataset_namespace_can_be_set(self) -> None:
+        """dataset_namespace can be customized."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            dataset_namespace="postgresql://prod-db:5432/mydb",
+        )
+        assert action.dataset_namespace == "postgresql://prod-db:5432/mydb"
+
 
 # =============================================================================
 # B. _should_emit() Tests
@@ -466,6 +519,216 @@ class TestBuildEvents:
 
         assert "correlator-ge" in events[0].producer
         assert "correlator-ge" in events[1].producer
+
+    # --- Parent context tests ---
+
+    def test_events_no_parent_facet_by_default(self) -> None:
+        """Events have no ParentRunFacet when parent_id is not configured."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        for event in events:
+            if event.run.facets:
+                assert "parent" not in event.run.facets
+
+    def test_empty_parent_id_no_facet(self) -> None:
+        """Empty string parent_id (from os.environ.get default) produces no facet."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        for event in events:
+            if event.run.facets:
+                assert "parent" not in event.run.facets
+
+    def test_events_include_parent_facet_when_configured(self) -> None:
+        """Events have ParentRunFacet when parent_id is set."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/demo_pipeline.ge_validate/019c7c79-b160-7a6f-0000-000000000000",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        for event in events:
+            assert event.run.facets is not None
+            assert "parent" in event.run.facets
+            parent_facet = event.run.facets["parent"]
+            assert parent_facet.run.runId == "019c7c79-b160-7a6f-0000-000000000000"
+            assert parent_facet.job.namespace == "airflow"
+            assert parent_facet.job.name == "demo_pipeline.ge_validate"
+
+    def test_parent_facet_on_both_start_and_terminal_events(self) -> None:
+        """ParentRunFacet appears on both START and FAIL events."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/dag.task/550e8400-e29b-41d4-a716-446655440000",
+        )
+        checkpoint_result = create_mock_checkpoint_result(success=False)
+
+        events = action._build_events(checkpoint_result)
+
+        assert events[0].eventType.name == "START"
+        assert "parent" in events[0].run.facets
+        assert events[1].eventType.name == "FAIL"
+        assert "parent" in events[1].run.facets
+
+    def test_parent_facet_includes_root_when_root_parent_id_set(self) -> None:
+        """ParentRunFacet includes root when root_parent_id is provided."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/demo_pipeline.ge_validate/019c7c79-b160-7a6f-0000-000000000001",
+            root_parent_id="airflow/demo_pipeline/019c7c79-b160-7a6f-0000-000000000002",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        parent_facet = events[0].run.facets["parent"]
+        # Parent
+        assert parent_facet.run.runId == "019c7c79-b160-7a6f-0000-000000000001"
+        assert parent_facet.job.namespace == "airflow"
+        assert parent_facet.job.name == "demo_pipeline.ge_validate"
+        # Root
+        assert parent_facet.root is not None
+        assert parent_facet.root.run.runId == "019c7c79-b160-7a6f-0000-000000000002"
+        assert parent_facet.root.job.namespace == "airflow"
+        assert parent_facet.root.job.name == "demo_pipeline"
+
+    def test_parent_without_root_uses_parent_as_root(self) -> None:
+        """When root_parent_id is not set, parent values are reused as root."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/demo_pipeline.ge_validate/019c7c79-b160-7a6f-0000-000000000001",
+            # root_parent_id not set
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        parent_facet = events[0].run.facets["parent"]
+        # Root should fall back to parent values
+        assert parent_facet.root is not None
+        assert parent_facet.root.run.runId == "019c7c79-b160-7a6f-0000-000000000001"
+        assert parent_facet.root.job.namespace == "airflow"
+        assert parent_facet.root.job.name == "demo_pipeline.ge_validate"
+
+    def test_malformed_parent_id_logs_warning_and_skips_facet(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Malformed parent_id (wrong number of parts) logs warning, no facet."""
+        caplog.set_level(logging.WARNING)
+
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="only-two/parts",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        for event in events:
+            if event.run.facets:
+                assert "parent" not in event.run.facets
+
+        assert any("parent_id" in record.message.lower() for record in caplog.records)
+
+    def test_malformed_root_parent_id_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Malformed root_parent_id logs warning, parent facet still attached without root."""
+        caplog.set_level(logging.WARNING)
+
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/dag.task/019c7c79-b160-7a6f-0000-000000000001",
+            root_parent_id="bad-format",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        # Parent facet should still be attached (parent_id is valid)
+        parent_facet = events[0].run.facets["parent"]
+        assert parent_facet.run.runId == "019c7c79-b160-7a6f-0000-000000000001"
+        # Root should fall back to parent values (malformed root_parent_id ignored)
+        assert parent_facet.root is not None
+        assert parent_facet.root.run.runId == "019c7c79-b160-7a6f-0000-000000000001"
+
+        assert any(
+            "root_parent_id" in record.message.lower() for record in caplog.records
+        )
+
+    def test_parent_id_with_uri_namespace(self) -> None:
+        """parent_id with URI-style namespace (containing slashes) is parsed correctly."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow://demo/demo_pipeline.ge_validate/019c8582-5c58-7c59-a16f-5bd41c03f6cd",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        parent_facet = events[0].run.facets["parent"]
+        assert parent_facet.job.namespace == "airflow://demo"
+        assert parent_facet.job.name == "demo_pipeline.ge_validate"
+        assert parent_facet.run.runId == "019c8582-5c58-7c59-a16f-5bd41c03f6cd"
+
+    def test_root_parent_id_with_uri_namespace(self) -> None:
+        """root_parent_id with URI-style namespace is parsed correctly."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow://demo/demo_pipeline.ge_validate/019c8582-5c58-7c59-a16f-5bd41c03f6cd",
+            root_parent_id="airflow://demo/demo_pipeline/019c8582-5c58-7c59-a16f-aaaaaaaaaaaa",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        parent_facet = events[0].run.facets["parent"]
+        assert parent_facet.root.job.namespace == "airflow://demo"
+        assert parent_facet.root.job.name == "demo_pipeline"
+        assert parent_facet.root.run.runId == "019c8582-5c58-7c59-a16f-aaaaaaaaaaaa"
+
+    # --- Dataset namespace tests ---
+
+    def test_dataset_namespace_overrides_extracted_namespace(self) -> None:
+        """dataset_namespace overrides the extracted datasource namespace."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            dataset_namespace="postgresql://prod-db:5432/mydb",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        complete_event = events[1]
+        assert complete_event.inputs is not None
+        assert len(complete_event.inputs) == 1
+        assert complete_event.inputs[0].namespace == "postgresql://prod-db:5432/mydb"
+        assert complete_event.inputs[0].name == "public.users"
+
+    def test_dataset_namespace_none_uses_extracted_namespace(self) -> None:
+        """When dataset_namespace is None, extracted datasource name is used."""
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        events = action._build_events(checkpoint_result)
+
+        complete_event = events[1]
+        assert complete_event.inputs is not None
+        assert complete_event.inputs[0].namespace == "postgres_prod"
 
 
 # =============================================================================
@@ -769,3 +1032,59 @@ class TestIntegration:
         sent_body = json.loads(responses.calls[0].request.body)
         assert sent_body[0]["eventType"] == "START"
         assert sent_body[1]["eventType"] == "FAIL"
+
+    @responses.activate
+    def test_full_workflow_with_parent_context(self) -> None:
+        """Full workflow: parent context appears in serialized events."""
+        responses.add(
+            responses.POST,
+            "http://localhost:8080/api/v1/lineage/events",
+            json={"status": "success", "summary": {"received": 2, "successful": 2}},
+            status=200,
+        )
+
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            parent_id="airflow/demo_pipeline.ge_validate/019c7c79-b160-7a6f-0000-000000000000",
+        )
+        checkpoint_result = create_mock_checkpoint_result(success=True)
+
+        result = action.run(checkpoint_result=checkpoint_result)
+
+        assert result["success"] is True
+
+        # Verify parent facet in serialized JSON
+        sent_body = json.loads(responses.calls[0].request.body)
+        for event in sent_body:
+            assert "parent" in event["run"]["facets"]
+            parent = event["run"]["facets"]["parent"]
+            assert parent["run"]["runId"] == "019c7c79-b160-7a6f-0000-000000000000"
+            assert parent["job"]["namespace"] == "airflow"
+            assert parent["job"]["name"] == "demo_pipeline.ge_validate"
+
+    @responses.activate
+    def test_full_workflow_with_dataset_namespace(self) -> None:
+        """Full workflow: dataset_namespace overrides namespace in serialized events."""
+        responses.add(
+            responses.POST,
+            "http://localhost:8080/api/v1/lineage/events",
+            json={"status": "success", "summary": {"received": 2, "successful": 2}},
+            status=200,
+        )
+
+        action = CorrelatorValidationAction(
+            correlator_endpoint="http://localhost:8080/api/v1/lineage/events",
+            dataset_namespace="postgresql://prod-db:5432/mydb",
+        )
+        checkpoint_result = create_mock_checkpoint_result()
+
+        result = action.run(checkpoint_result=checkpoint_result)
+
+        assert result["success"] is True
+
+        # Verify dataset namespace in serialized JSON
+        sent_body = json.loads(responses.calls[0].request.body)
+        complete_event = sent_body[1]  # COMPLETE event
+        assert (
+            complete_event["inputs"][0]["namespace"] == "postgresql://prod-db:5432/mydb"
+        )

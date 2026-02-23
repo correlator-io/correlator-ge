@@ -17,13 +17,19 @@ Requirements:
     - Great Expectations >= 1.3.0
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
-from uuid import NAMESPACE_URL, uuid5
 
 import great_expectations
-from great_expectations.checkpoint import ValidationAction
+from great_expectations.checkpoint import CheckpointResult, ValidationAction
+from great_expectations.checkpoint.actions import ActionContext
+from great_expectations.core import ExpectationSuiteValidationResult
+from great_expectations.data_context.types.resource_identifiers import (
+    ValidationResultIdentifier,
+)
 from openlineage.client.event_v2 import (
     InputDataset,
     Job,
@@ -31,6 +37,8 @@ from openlineage.client.event_v2 import (
     RunEvent,
     RunState,
 )
+from openlineage.client.facet_v2 import parent_run
+from uuid_extensions import uuid7  # type: ignore[import-untyped]
 
 from ge_correlator import __version__
 from ge_correlator.emitter import emit_events
@@ -38,7 +46,6 @@ from ge_correlator.extractors import (
     extract_data_quality_facets,
     extract_datasets,
     extract_job_name,
-    extract_run_id,
     extract_run_time,
 )
 
@@ -81,6 +88,14 @@ class CorrelatorValidationAction(ValidationAction):
         emit_on: When to emit events - "all", "success", or "failure".
         job_namespace: Namespace for OpenLineage job (default: great_expectations://default).
         timeout: HTTP request timeout in seconds.
+        parent_id: Parent run context in "namespace/job_name/run_id" format.
+            Pass the raw OPENLINEAGE_PARENT_ID env var value directly.
+        root_parent_id: Root parent run context in "namespace/job_name/run_id" format.
+            Pass the raw OPENLINEAGE_ROOT_PARENT_ID env var value directly.
+            When empty, parent values are reused as root.
+        dataset_namespace: Override for dataset namespace. When set, replaces
+            the extracted datasource_name with a canonical URI
+            (e.g., "postgresql://prod-db:5432/mydb").
 
     Example:
         Python API (recommended):
@@ -95,6 +110,8 @@ class CorrelatorValidationAction(ValidationAction):
                     correlator_endpoint="http://correlator:8080/api/v1/lineage/events",
                     api_key=os.environ.get("CORRELATOR_API_KEY"),
                     emit_on="all",
+                    parent_id=os.environ.get("OPENLINEAGE_PARENT_ID", ""),
+                    root_parent_id=os.environ.get("OPENLINEAGE_ROOT_PARENT_ID", ""),
                 ),
             ],
         )
@@ -125,10 +142,22 @@ class CorrelatorValidationAction(ValidationAction):
     job_namespace: str = "great_expectations://default"
     timeout: int = 30
 
+    # Parent context - composite "namespace/job_name/run_id" strings
+    # Accepts the raw OPENLINEAGE_PARENT_ID / OPENLINEAGE_ROOT_PARENT_ID env var values.
+    # Empty string means not set.
+    parent_id: str = ""
+    root_parent_id: str = ""
+
+    # Dataset namespace override
+    # When set, overrides the extracted datasource_name for all datasets.
+    # Use this to provide a canonical URI (e.g., "postgresql://prod-db:5432/mydb")
+    # instead of GE's logical datasource name (e.g., "postgres_prod").
+    dataset_namespace: Optional[str] = None
+
     def run(
         self,
-        checkpoint_result: Any,
-        action_context: Optional[Any] = None,  # noqa: ARG002
+        checkpoint_result: CheckpointResult,
+        action_context: ActionContext | None = None,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Execute the action after checkpoint validation.
 
@@ -138,7 +167,7 @@ class CorrelatorValidationAction(ValidationAction):
 
         Args:
             checkpoint_result: GE CheckpointResult object.
-            action_context: Optional action context (unused).
+            action_context: Optional action context for sharing results between actions.
 
         Returns:
             Dict with class name, success status, and optional message/error.
@@ -180,7 +209,7 @@ class CorrelatorValidationAction(ValidationAction):
                 "error": str(e),
             }
 
-    def _should_emit(self, checkpoint_result: Any) -> bool:
+    def _should_emit(self, checkpoint_result: CheckpointResult) -> bool:
         """Check if events should be emitted based on emit_on config.
 
         Args:
@@ -196,7 +225,82 @@ class CorrelatorValidationAction(ValidationAction):
         # emit_on == "failure"
         return checkpoint_result.success is False
 
-    def _build_events(self, checkpoint_result: Any) -> list[RunEvent]:
+    @staticmethod
+    def _parse_parent_id(value: str, field_name: str) -> tuple[str, str, str] | None:
+        """Parse a composite "namespace/job_name/run_id" string.
+
+        Format matches OPENLINEAGE_PARENT_ID / OPENLINEAGE_ROOT_PARENT_ID
+        convention used by the Airflow OpenLineage macros.
+
+        Uses rsplit to split from the right, which correctly handles
+        URI-style namespaces containing slashes (e.g., "airflow://demo").
+        This works because job_name uses dots (not slashes) and run_id
+        is a UUID (no slashes), so only the namespace can contain them.
+
+        Args:
+            value: Composite string in "namespace/job_name/run_id" format.
+            field_name: Name of the field (for log messages).
+
+        Returns:
+            Tuple of (namespace, job_name, run_id) or None if empty/malformed.
+        """
+        if not value:
+            return None
+
+        parts = value.rsplit("/", 2)
+        if len(parts) != 3:
+            logger.warning(
+                "%s cannot be parsed (expected 'namespace/job_name/run_id'): %s",
+                field_name,
+                value,
+            )
+            return None
+
+        return parts[0], parts[1], parts[2]
+
+    def _build_parent_facet(self) -> parent_run.ParentRunFacet | None:
+        """Build ParentRunFacet from parent_id and root_parent_id strings.
+
+        Parses the composite strings and constructs the OpenLineage
+        ParentRunFacet with optional root. When root_parent_id is not set,
+        parent values are reused as root (matching dbt-ol behavior).
+
+        Returns:
+            ParentRunFacet if parent_id is valid, else None.
+        """
+        parsed_parent = self._parse_parent_id(self.parent_id, "parent_id")
+        if parsed_parent is None:
+            return None
+
+        parent_namespace, parent_job_name, parent_run_id = parsed_parent
+
+        # Parse root parent, fall back to parent values if not set or malformed
+        parsed_root = self._parse_parent_id(self.root_parent_id, "root_parent_id")
+        if parsed_root is not None:
+            root_namespace, root_job_name, root_run_id = parsed_root
+        else:
+            root_namespace = parent_namespace
+            root_job_name = parent_job_name
+            root_run_id = parent_run_id
+
+        return parent_run.ParentRunFacet(  # type: ignore[call-arg]
+            run=parent_run.Run(runId=parent_run_id),  # type: ignore[call-arg]
+            job=parent_run.Job(  # type: ignore[call-arg]
+                namespace=parent_namespace,
+                name=parent_job_name,
+            ),
+            root=parent_run.Root(  # type: ignore[call-arg]
+                run=parent_run.RootRun(  # type: ignore[call-arg]
+                    runId=root_run_id,
+                ),
+                job=parent_run.RootJob(  # type: ignore[call-arg]
+                    namespace=root_namespace,
+                    name=root_job_name,
+                ),
+            ),
+        )
+
+    def _build_events(self, checkpoint_result: CheckpointResult) -> list[RunEvent]:
         """Build OpenLineage events from checkpoint result.
 
         Creates START and COMPLETE/FAIL events for each validation in the
@@ -211,11 +315,17 @@ class CorrelatorValidationAction(ValidationAction):
         events: list[RunEvent] = []
 
         # Get run metadata
-        run_id = extract_run_id(checkpoint_result)
         run_time = extract_run_time(checkpoint_result)
 
+        # Build parent facet once (same for all events)
+        parent_facet = self._build_parent_facet()
+        run_facets: dict[str, Any] = {}
+        if parent_facet:
+            run_facets["parent"] = parent_facet
+
         # Process each validation result
-        # GE 1.x: run_results maps validation_id -> ExpectationSuiteValidationResult directly
+        validation_id: ValidationResultIdentifier
+        validation_result: ExpectationSuiteValidationResult
         for validation_id, validation_result in checkpoint_result.run_results.items():
 
             # Extract job name
@@ -223,12 +333,16 @@ class CorrelatorValidationAction(ValidationAction):
 
             # Generate unique run_id per validation to avoid duplicate START events
             # Each validation in a checkpoint gets its own OpenLineage run
-            validation_run_id = str(uuid5(NAMESPACE_URL, f"{run_id}:{validation_id}"))
+            # Uses uuid7 (time-ordered) to match OpenLineage recommendation
+            validation_run_id = str(uuid7())
 
             # Build Job and Run objects
             # Note: type: ignore needed because openlineage-python lacks type stubs
             job = Job(namespace=self.job_namespace, name=job_name)  # type: ignore[call-arg]
-            run = Run(runId=validation_run_id)  # type: ignore[call-arg]
+            run = Run(  # type: ignore[call-arg]
+                runId=validation_run_id,
+                facets=run_facets if run_facets else None,
+            )
 
             # Create START event (uses run_time as event time)
             # Note: OpenLineage expects eventTime as ISO format string
@@ -247,15 +361,35 @@ class CorrelatorValidationAction(ValidationAction):
             else:
                 event_type = RunState.FAIL
 
+            # Calculate duration per expectation
+            # GE doesn't track per-expectation timing, so we distribute
+            # total checkpoint duration across all expectations
+            now = datetime.now(timezone.utc)
+            total_duration_ms = int((now - run_time).total_seconds() * 1000)
+            num_expectations = len(validation_result.results or [])
+            duration_ms_per_expectation = (
+                total_duration_ms // num_expectations if num_expectations > 0 else 0
+            )
+
             # Extract datasets and facets for COMPLETE/FAIL event
             datasets = extract_datasets(validation_result)
-            facets = extract_data_quality_facets(validation_result, producer=PRODUCER)
+            facets = extract_data_quality_facets(
+                validation_result,
+                producer=PRODUCER,
+                duration_ms_per_expectation=duration_ms_per_expectation,
+            )
 
             # Build input datasets with facets
             inputs: list[InputDataset] = []
             for dataset in datasets:
+                # Apply dataset_namespace override if configured
+                namespace = (
+                    self.dataset_namespace
+                    if self.dataset_namespace
+                    else dataset["namespace"]
+                )
                 input_dataset = InputDataset(  # type: ignore[call-arg]
-                    namespace=dataset["namespace"],
+                    namespace=namespace,
                     name=dataset["name"],
                     inputFacets=facets,
                 )
