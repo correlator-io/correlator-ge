@@ -154,6 +154,9 @@ ignore = [
     "ARG",
     "PLR2004",
 ]
+# Pydantic v1 (used by GE's ValidationAction) evaluates class-level annotations
+# at runtime via resolve_annotations(). str | None breaks on Python 3.9.
+"src/ge_correlator/action.py" = ["UP045"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

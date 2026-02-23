@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import great_expectations
 from great_expectations.checkpoint import CheckpointResult, ValidationAction
@@ -137,7 +137,7 @@ class CorrelatorValidationAction(ValidationAction):
 
     # Configuration fields (Pydantic field declarations)
     correlator_endpoint: str
-    api_key: str | None = None
+    api_key: Optional[str] = None
     emit_on: Literal["all", "success", "failure"] = "all"
     job_namespace: str = "great_expectations://default"
     timeout: int = 30
@@ -152,7 +152,7 @@ class CorrelatorValidationAction(ValidationAction):
     # When set, overrides the extracted datasource_name for all datasets.
     # Use this to provide a canonical URI (e.g., "postgresql://prod-db:5432/mydb")
     # instead of GE's logical datasource name (e.g., "postgres_prod").
-    dataset_namespace: str | None = None
+    dataset_namespace: Optional[str] = None
 
     def run(
         self,
